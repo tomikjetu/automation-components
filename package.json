@@ -1,0 +1,23 @@
+{
+  "name": "ai-agent",
+  "version": "1.0.0",
+  "description": "",
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "dev": "ts-node src/index.ts",
+    "build": "tsc",
+    "start": "node out/index.js"
+  },
+  "dependencies": {
+    "@types/node": "^24.2.1",
+    "dotenv": "^17.2.1",
+    "openai": "^5.12.2"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.2"
+  }
+}
