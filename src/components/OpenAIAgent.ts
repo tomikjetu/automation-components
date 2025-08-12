@@ -34,7 +34,7 @@ export class FunctionToolGenerator {
             tool: {
                 type: "function",
                 name: name,
-                strict: true,
+                strict: false,
                 description: description,
                 parameters: {
                     type: "object",
