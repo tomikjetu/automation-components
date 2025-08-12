@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>AI Agent Chat</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            background: #f5f7fa;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .chat-container {
+            max-width: 500px;
+            margin: auto;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+            display: flex;
+            flex-direction: column;
+            height: 80vh;
+            margin-top: 40px;
+            overflow: hidden;
+        }
+
+        .chat-messages {
+            flex: 1;
+            padding: 24px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .message {
+            max-width: 75%;
+            padding: 12px 18px;
+            border-radius: 18px;
+            font-size: 1rem;
+            line-height: 1.5;
+            word-break: break-word;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+        }
+
+        .message.user {
+            align-self: flex-end;
+            background: #2563eb;
+            color: #fff;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message.agent {
+            align-self: flex-start;
+            background: #f1f5f9;
+            color: #222;
+            border-bottom-left-radius: 4px;
+        }
+
+        .chat-input-area {
+            display: flex;
+            border-top: 1px solid #e5e7eb;
+            background: #f9fafb;
+            padding: 12px;
+        }
+
+        .chat-input {
+            flex: 1;
+            border: none;
+            border-radius: 8px;
+            padding: 10px 14px;
+            font-size: 1rem;
+            background: #fff;
+            margin-right: 8px;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+        }
+
+        .chat-input:focus {
+            outline: none;
+            box-shadow: 0 0 0 2px #2563eb33;
+        }
+
+        .send-btn {
+            background: #2563eb;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 0 20px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .send-btn:disabled {
+            background: #a5b4fc;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="chat-container">
+        <div class="chat-messages" id="chatMessages"></div>
+        <form class="chat-input-area" id="chatForm" autocomplete="off">
+            <input type="text" id="chatInput" class="chat-input" placeholder="Type your message..." required />
+            <button type="submit" class="send-btn">Send</button>
+        </form>
+    </div>
+    <script>
+        const chatMessages = document.getElementById('chatMessages');
+        const chatForm = document.getElementById('chatForm');
+        const chatInput = document.getElementById('chatInput');
+
+        // Store messages in memory
+        let messages = [];
+
+        // Render messages
+        function renderMessages() {
+            // Only append new messages, don't clear chatMessages
+            for (let i = 0; i < messages.length; i++) {
+                const msg = messages[i];
+                const div = document.createElement('div');
+                div.className = `message ${msg.role}`;
+                div.textContent = msg.content;
+                chatMessages.appendChild(div);
+            }
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            messages = [];
+        }
+
+        // Fetch agent messages from server
+        async function fetchAgentMessages() {
+            try {
+                const res = await fetch('/chat');
+                if (!res.ok) return;
+                const data = await res.json();
+                // Only append new messages
+                if (Array.isArray(data) && data.length > messages.length) {
+                    // Only add new messages to avoid duplicates
+                    for (let i = messages.length; i < data.length; i++) {
+                        messages.push({ role: 'agent', content: data[i] });
+                    }
+                    renderMessages();
+                }
+            } catch (e) {
+                // Optionally handle error
+            }
+        }
+
+        // Send user message to server
+        async function sendUserMessage(message) {
+            try {
+                const res = await fetch('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message })
+                });
+                if (!res.ok) return;
+                // Optionally update messages after sending
+                await fetchAgentMessages();
+            } catch (e) {
+                // Optionally handle error
+            }
+        }
+
+        // Initial fetch
+        fetchAgentMessages();
+
+        // Poll for new agent messages every 2 seconds
+        setInterval(fetchAgentMessages, 2000);
+
+        // Handle user input
+        chatForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const content = chatInput.value.trim();
+            if (!content) return;
+            // Optimistically add user message
+            messages.push({ role: 'user', content });
+            renderMessages();
+            chatInput.value = '';
+            await sendUserMessage(content);
+        });
+    </script>
+</body>
+
+</html>

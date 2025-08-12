@@ -1,50 +1,69 @@
 import OpenAI from 'openai';
-import { ResponseFunctionToolCall, ResponseInput, ResponseInputItem, ResponseOutputText, Tool } from 'openai/resources/responses/responses';
+import { FunctionTool, ResponseFunctionToolCall, ResponseInput, ResponseInputItem, ResponseOutputText, Tool } from 'openai/resources/responses/responses';
 
 export interface SystemPromptFunction { (): string; }
 export interface MessageListenerFunction { (message: string): void; }
-export interface GetToolsFunction { (): Tool[]; }
+export interface GetToolsFunction { (): { tool: Tool, handler: { name: string, handler: HandleToolFunction } }[]; }
+export interface HandleToolFunctionResponse {
+    success: boolean;
+    content?: any;
+    message?: string;
+}
 export interface HandleToolFunction {
-    (name: string, options: any): Promise<{
-        success: boolean;
-        content?: any;
-        message?: string;
-    }>;
+    (options: any): Promise<HandleToolFunctionResponse>;
 }
 
-type FunctionToolParameterType = "string" | "integer" | "boolean" | "object";
+interface FunctionParameterTypeArray { items: FunctionParameterTypePrimitive; }
+type FunctionParameterTypePrimitive = "string" | "integer" | "boolean" | "object";
+type FunctionToolParameterType = FunctionParameterTypePrimitive | FunctionParameterTypeArray;
 export interface FunctionToolParameter {
     name: string,
-    type: FunctionToolParameterType,
+    type: FunctionParameterTypePrimitive | "array",
+    items?: {
+        type: FunctionParameterTypePrimitive
+    }
     description: string,
     required: boolean
 }
-export interface FunctionToolParameterProperties {
-    type: string; description: string
-}
+export interface FunctionToolParameterProperties { type: string; description: string; items?: { type: string }; }
 
 export class FunctionToolGenerator {
-    static getTool(name: string, description: string, parameters: FunctionToolParameter[]): Tool {
+    static getTool(name: string, description: string, parameters: FunctionToolParameter[], handler: HandleToolFunction): { tool: Tool, handler: { name: string, handler: HandleToolFunction } } {
         return {
-            type: "function",
-            name: name,
-            strict: true,
-            description: description,
-            parameters: {
-                type: "object",
-                properties: parameters.reduce((acc, item) => {
-                    acc[item.name] = {
-                        type: item.type,
-                        description: item.description
-                    };
-                    return acc;
-                }, {} as Record<string, FunctionToolParameterProperties>),
-                required: parameters.filter(item => item.required).map(item => item.name),
-                additionalProperties: false
+            handler: { name, handler },
+            tool: {
+                type: "function",
+                name: name,
+                strict: true,
+                description: description,
+                parameters: {
+                    type: "object",
+                    properties: parameters.reduce((acc, item) => {
+                        acc[item.name] = {
+                            type: item.type,
+                            items: item.items,
+                            description: item.description
+                        };
+                        return acc;
+                    }, {} as Record<string, FunctionToolParameterProperties>),
+                    required: parameters.filter(item => item.required).map(item => item.name),
+                    additionalProperties: false
+                }
             }
         };
     }
     static getFunctionToolParameter(name: string, type: FunctionToolParameterType, description: string, required: boolean): FunctionToolParameter {
+        if (typeof type === "object" && type !== null && "items" in type) {
+            return {
+                name: name,
+                type: "array",
+                items: {
+                    type: type.items
+                },
+                description: description,
+                required: required
+            };
+        }
         return {
             name: name,
             type: type,
@@ -60,20 +79,17 @@ export class OpenAIAgent {
     private messageListener: MessageListenerFunction;
     private getSystemPrompt: SystemPromptFunction;
     private getTools: GetToolsFunction;
-    private handleTool: HandleToolFunction;
 
     constructor(apiKey: string, options: {
         messageListener: MessageListenerFunction,
         getSystemPrompt: SystemPromptFunction,
-        getTools: GetToolsFunction,
-        handleTool: HandleToolFunction
+        getTools: GetToolsFunction
     }) {
         this.openai = new OpenAI({ apiKey });
         this.chatHistory = [];
         this.messageListener = options.messageListener;
         this.getSystemPrompt = options.getSystemPrompt;
         this.getTools = options.getTools;
-        this.handleTool = options.handleTool;
     }
 
     public getChatHistory(): ResponseInput {
@@ -84,7 +100,20 @@ export class OpenAIAgent {
         const output: ResponseInputItem[] = [];
         for (const item of functionCallStack) {
             const options = JSON.parse(item.arguments);
-            var result = await this.handleTool(item.name, options);
+            const tools = this.getTools();
+            var handler: HandleToolFunction | null = null;
+
+            for (const tool of tools) {
+                if ((tool.tool as FunctionTool).name === item.name) {
+                    handler = tool.handler.handler;
+                    break;
+                }
+            }
+
+            var result: HandleToolFunctionResponse = { success: false, content: 'function_id not found' }
+            if (handler) result = await handler(options);
+
+
             output.push({
                 type: "function_call_output",
                 call_id: item.call_id,
@@ -105,7 +134,7 @@ export class OpenAIAgent {
                 },
                 "verbosity": "medium"
             },
-            tools: this.getTools()
+            tools: this.getTools().map(tool => tool.tool)
         });
 
         const items: ResponseInputItem[] = response.output;
