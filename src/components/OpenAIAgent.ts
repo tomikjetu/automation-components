@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import { FunctionTool, ResponseFunctionToolCall, ResponseInput, ResponseInputItem, ResponseOutputText, Tool } from 'openai/resources/responses/responses';
 
-export interface SystemPromptFunction { (): string; }
+export interface SystemPromptFunction { (): Promise<string>; }
 export interface MessageListenerFunction { (message: string): void; }
 export interface GetToolsFunction { (): { tool: Tool, handler: { name: string, handler: HandleToolFunction } }[]; }
 export interface HandleToolFunctionResponse {
@@ -96,24 +96,27 @@ export class OpenAIAgent {
         return this.chatHistory;
     }
 
+    async handleSingleFunctionCall(name: string, options: any) : Promise<any> {
+        const tools = this.getTools();
+        var handler: HandleToolFunction | null = null;
+
+        for (const tool of tools) {
+            if ((tool.tool as FunctionTool).name === name) {
+                handler = tool.handler.handler;
+                break;
+            }
+        }
+
+        var result: HandleToolFunctionResponse = { success: false, content: 'function_id not found' }
+        if (handler) result = await handler(options);
+        return result;
+    }
+
     async handleFunctionCalls(functionCallStack: ResponseFunctionToolCall[]): Promise<ResponseInputItem[]> {
         const output: ResponseInputItem[] = [];
         for (const item of functionCallStack) {
             const options = JSON.parse(item.arguments);
-            const tools = this.getTools();
-            var handler: HandleToolFunction | null = null;
-
-            for (const tool of tools) {
-                if ((tool.tool as FunctionTool).name === item.name) {
-                    handler = tool.handler.handler;
-                    break;
-                }
-            }
-
-            var result: HandleToolFunctionResponse = { success: false, content: 'function_id not found' }
-            if (handler) result = await handler(options);
-
-
+            const result = await this.handleSingleFunctionCall(item.name, options);
             output.push({
                 type: "function_call_output",
                 call_id: item.call_id,
@@ -127,7 +130,7 @@ export class OpenAIAgent {
         const response = await this.openai.responses.create({
             model: 'gpt-4.1',
             input: this.chatHistory,
-            instructions: this.getSystemPrompt(),
+            instructions: await this.getSystemPrompt(),
             text: {
                 "format": {
                     "type": "text"
